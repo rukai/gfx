@@ -305,7 +305,7 @@ impl Instance {
 
     #[cfg(feature = "winit")]
     #[allow(unreachable_code)]
-    pub fn create_surface(&self, window: &winit::Window) -> Surface {
+    pub fn create_surface(&self, window: &winit::window::Window) -> Surface {
         #[cfg(all(
             feature = "x11",
             unix,
@@ -313,13 +313,13 @@ impl Instance {
             not(target_os = "macos")
         ))]
         {
-            use winit::os::unix::WindowExt;
+            use winit::platform::unix::WindowExtUnix;
 
             if self.extensions.contains(&khr::WaylandSurface::name()) {
-                if let Some(display) = window.get_wayland_display() {
+                if let Some(display) = window.wayland_display() {
                     let display: *mut c_void = display as *mut _;
-                    let surface: *mut c_void = window.get_wayland_surface().unwrap() as *mut _;
-                    let px = window.get_inner_size().unwrap();
+                    let surface: *mut c_void = window.wayland_surface().unwrap() as *mut _;
+                    let px = window.inner_size();
                     return self.create_surface_from_wayland(
                         display,
                         surface,
@@ -329,8 +329,8 @@ impl Instance {
                 }
             }
             if self.extensions.contains(&khr::XlibSurface::name()) {
-                if let Some(display) = window.get_xlib_display() {
-                    let window = window.get_xlib_window().unwrap();
+                if let Some(display) = window.xlib_display() {
+                    let window = window.xlib_window().unwrap();
                     return self.create_surface_from_xlib(display as _, window);
                 }
             }
@@ -338,8 +338,8 @@ impl Instance {
         }
         #[cfg(target_os = "android")]
         {
-            use winit::os::android::WindowExt;
-            let logical_size = window.get_inner_size().unwrap();
+            use winit::platform::android::WindowExtAndroid;
+            let logical_size = window.inner_size();
             let width = logical_size.width * window.get_hidpi_factor();
             let height = logical_size.height * window.get_hidpi_factor();
             return self.create_surface_android(
@@ -351,7 +351,7 @@ impl Instance {
         #[cfg(windows)]
         {
             use winapi::um::libloaderapi::GetModuleHandleW;
-            use winit::os::windows::WindowExt;
+            use winit::platform::windows::WindowExtWindows;
 
             let hinstance = unsafe { GetModuleHandleW(ptr::null()) };
             let hwnd = window.get_hwnd();
@@ -359,7 +359,7 @@ impl Instance {
         }
         #[cfg(target_os = "macos")]
         {
-            use winit::os::macos::WindowExt;
+            use winit::platform::macos::WindowExtMacOS;
 
             return self.create_surface_from_nsview(window.get_nsview());
         }

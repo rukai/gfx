@@ -51,6 +51,7 @@ use hal::{DescriptorPool, Primitive, SwapchainConfig};
 use hal::{Device, Instance, PhysicalDevice, Surface, Swapchain};
 
 use std::io::Cursor;
+use std::mem::ManuallyDrop;
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const DIMS: Extent2D = Extent2D { width: 1024,height: 768 };
@@ -96,12 +97,12 @@ fn main() {
     env_logger::init();
 
     #[cfg(not(target_arch = "wasm32"))]
-    let mut events_loop = winit::EventsLoop::new();
+    let event_loop = winit::event_loop::EventLoop::new();
 
     #[cfg(not(target_arch = "wasm32"))]
-    let wb = winit::WindowBuilder::new()
-        .with_min_dimensions(winit::dpi::LogicalSize::new(1.0, 1.0))
-        .with_dimensions(winit::dpi::LogicalSize::new(
+    let wb = winit::window::WindowBuilder::new()
+        .with_min_inner_size(winit::dpi::LogicalSize::new(1.0, 1.0))
+        .with_inner_size(winit::dpi::LogicalSize::new(
             DIMS.width as _,
             DIMS.height as _,
         ))
@@ -109,7 +110,7 @@ fn main() {
     // instantiate backend
     #[cfg(not(feature = "gl"))]
     let (_window, _instance, mut adapters, mut surface) = {
-        let window = wb.build(&events_loop).unwrap();
+        let window = wb.build(&event_loop).unwrap();
         let instance = back::Instance::create("gfx-rs quad", 1);
         let surface = instance.create_surface(&window);
         let adapters = instance.enumerate_adapters();
@@ -122,7 +123,7 @@ fn main() {
             let builder =
                 back::config_context(back::glutin::ContextBuilder::new(), ColorFormat::SELF, None)
                     .with_vsync(true);
-            let context = builder.build_windowed(wb, &events_loop).unwrap();
+            let context = builder.build_windowed(wb, &event_loop).unwrap();
             unsafe { context.make_current() }.expect("Unable to make context current")
         };
         #[cfg(target_arch = "wasm32")]
@@ -138,6 +139,7 @@ fn main() {
     }
 
     let mut adapter = adapters.remove(0);
+
     let memory_types = adapter.physical_device.memory_properties().memory_types;
     let limits = adapter.physical_device.limits();
 
@@ -152,7 +154,7 @@ fn main() {
     .expect("Can't create command pool");
 
     // Setup renderpass and pipeline
-    let set_layout = unsafe {
+    let set_layout = ManuallyDrop::new(unsafe {
         device.create_descriptor_set_layout(
             &[
                 pso::DescriptorSetLayoutBinding {
@@ -173,10 +175,10 @@ fn main() {
             &[],
         )
     }
-    .expect("Can't create descriptor set layout");
+    .expect("Can't create descriptor set layout"));
 
     // Descriptors
-    let mut desc_pool = unsafe {
+    let mut desc_pool = ManuallyDrop::new(unsafe {
         device.create_descriptor_pool(
             1, // sets
             &[
@@ -192,7 +194,7 @@ fn main() {
             pso::DescriptorPoolCreateFlags::empty(),
         )
     }
-    .expect("Can't create descriptor pool");
+    .expect("Can't create descriptor pool"));
     let desc_set = unsafe { desc_pool.allocate_set(&set_layout) }.unwrap();
 
     // Buffer allocations
@@ -203,7 +205,7 @@ fn main() {
 
     assert_ne!(buffer_len, 0);
     let mut vertex_buffer =
-        unsafe { device.create_buffer(buffer_len, buffer::Usage::VERTEX) }.unwrap();
+        ManuallyDrop::new(unsafe { device.create_buffer(buffer_len, buffer::Usage::VERTEX) }.unwrap());
 
     let buffer_req = unsafe { device.get_buffer_requirements(&vertex_buffer) };
 
@@ -220,7 +222,7 @@ fn main() {
         .unwrap()
         .into();
 
-    let buffer_memory = unsafe { device.allocate_memory(upload_type, buffer_req.size) }.unwrap();
+    let buffer_memory = ManuallyDrop::new(unsafe { device.allocate_memory(upload_type, buffer_req.size) }.unwrap());
 
     unsafe { device.bind_buffer_memory(&buffer_memory, 0, &mut vertex_buffer) }.unwrap();
 
@@ -247,10 +249,10 @@ fn main() {
     let upload_size = (height * row_pitch) as u64;
 
     let mut image_upload_buffer =
-        unsafe { device.create_buffer(upload_size, buffer::Usage::TRANSFER_SRC) }.unwrap();
+        ManuallyDrop::new(unsafe { device.create_buffer(upload_size, buffer::Usage::TRANSFER_SRC) }.unwrap());
     let image_mem_reqs = unsafe { device.get_buffer_requirements(&image_upload_buffer) };
     let image_upload_memory =
-        unsafe { device.allocate_memory(upload_type, image_mem_reqs.size) }.unwrap();
+        ManuallyDrop::new(unsafe { device.allocate_memory(upload_type, image_mem_reqs.size) }.unwrap());
 
     unsafe { device.bind_buffer_memory(&image_upload_memory, 0, &mut image_upload_buffer) }
         .unwrap();
@@ -269,7 +271,7 @@ fn main() {
         device.release_mapping_writer(data).unwrap();
     }
 
-    let mut image_logo = unsafe {
+    let mut image_logo = ManuallyDrop::new(unsafe {
         device.create_image(
             kind,
             1,
@@ -279,7 +281,7 @@ fn main() {
             i::ViewCapabilities::empty(),
         )
     }
-    .unwrap();
+    .unwrap());
     let image_req = unsafe { device.get_image_requirements(&image_logo) };
 
     let device_type = memory_types
@@ -291,10 +293,10 @@ fn main() {
         })
         .unwrap()
         .into();
-    let image_memory = unsafe { device.allocate_memory(device_type, image_req.size) }.unwrap();
+    let image_memory = ManuallyDrop::new(unsafe { device.allocate_memory(device_type, image_req.size) }.unwrap());
 
     unsafe { device.bind_image_memory(&image_memory, 0, &mut image_logo) }.unwrap();
-    let image_srv = unsafe {
+    let image_srv = ManuallyDrop::new(unsafe {
         device.create_image_view(
             &image_logo,
             i::ViewKind::D2,
@@ -303,12 +305,12 @@ fn main() {
             COLOR_RANGE.clone(),
         )
     }
-    .unwrap();
+    .unwrap());
 
-    let sampler = unsafe {
+    let sampler = ManuallyDrop::new(unsafe {
         device.create_sampler(i::SamplerInfo::new(i::Filter::Linear, i::WrapMode::Clamp))
     }
-    .expect("Can't create sampler");
+    .expect("Can't create sampler"));;
 
     unsafe {
         device.write_descriptor_sets(vec![
@@ -316,13 +318,13 @@ fn main() {
                 set: &desc_set,
                 binding: 0,
                 array_offset: 0,
-                descriptors: Some(pso::Descriptor::Image(&image_srv, i::Layout::Undefined)),
+                descriptors: Some(pso::Descriptor::Image(&*image_srv, i::Layout::Undefined)),
             },
             pso::DescriptorSetWrite {
                 set: &desc_set,
                 binding: 1,
                 array_offset: 0,
-                descriptors: Some(pso::Descriptor::Sampler(&sampler)),
+                descriptors: Some(pso::Descriptor::Sampler(&*sampler)),
             },
         ]);
     }
@@ -336,7 +338,7 @@ fn main() {
         let image_barrier = m::Barrier::Image {
             states: (i::Access::empty(), i::Layout::Undefined)
                 .. (i::Access::TRANSFER_WRITE, i::Layout::TransferDstOptimal),
-            target: &image_logo,
+            target: &*image_logo,
             families: None,
             range: COLOR_RANGE.clone(),
         };
@@ -372,7 +374,7 @@ fn main() {
         let image_barrier = m::Barrier::Image {
             states: (i::Access::TRANSFER_WRITE, i::Layout::TransferDstOptimal)
                 .. (i::Access::SHADER_READ, i::Layout::ShaderReadOnlyOptimal),
-            target: &image_logo,
+            target: &*image_logo,
             families: None,
             range: COLOR_RANGE.clone(),
         };
@@ -409,9 +411,10 @@ fn main() {
     println!("{:?}", swap_config);
     let extent = swap_config.extent.to_extent();
 
-    let (mut swap_chain, mut backbuffer) =
+    let (swap_chain, backbuffer) =
         unsafe { device.create_swapchain(&mut surface, swap_config, None) }
             .expect("Can't create swapchain");
+    let mut swap_chain = Some(swap_chain);
 
     let render_pass = {
         let attachment = pass::Attachment {
@@ -441,8 +444,8 @@ fn main() {
                 .. (i::Access::COLOR_ATTACHMENT_READ | i::Access::COLOR_ATTACHMENT_WRITE),
         };
 
-        unsafe { device.create_render_pass(&[attachment], &[subpass], &[dependency]) }
-            .expect("Can't create render pass")
+        ManuallyDrop::new(unsafe { device.create_render_pass(&[attachment], &[subpass], &[dependency]) }
+            .expect("Can't create render pass"))
     };
 
     let (mut frame_images, mut framebuffers) = {
@@ -480,9 +483,9 @@ fn main() {
     // plus one extra which we can guarantee is unused at any given time by swapping it out with the ones
     // in the rest of the queue.
     let mut image_acquire_semaphores = Vec::with_capacity(frame_images.len());
-    let mut free_acquire_semaphore = device
+    let mut free_acquire_semaphore = Option::Some(device
         .create_semaphore()
-        .expect("Could not create semaphore");
+        .expect("Could not create semaphore"));
 
     // The number of the rest of the resources is based on the frames in flight.
     let mut submission_complete_semaphores = Vec::with_capacity(frames_in_flight);
@@ -532,13 +535,13 @@ fn main() {
         cmd_buffers.push(cmd_pools[i].acquire_command_buffer::<command::MultiShot>());
     }
 
-    let pipeline_layout = unsafe {
+    let pipeline_layout = ManuallyDrop::new(unsafe {
         device.create_pipeline_layout(
-            std::iter::once(&set_layout),
+            std::iter::once(&*set_layout),
             &[(pso::ShaderStageFlags::VERTEX, 0 .. 8)],
         )
     }
-    .expect("Can't create pipeline layout");
+    .expect("Can't create pipeline layout"));
     let pipeline = {
         let vs_module = {
             let spirv =
@@ -575,14 +578,14 @@ fn main() {
 
             let subpass = Subpass {
                 index: 0,
-                main_pass: &render_pass,
+                main_pass: &*render_pass,
             };
 
             let mut pipeline_desc = pso::GraphicsPipelineDesc::new(
                 shader_entries,
                 Primitive::TriangleList,
                 pso::Rasterizer::FILL,
-                &pipeline_layout,
+                &*pipeline_layout,
                 subpass,
             );
             pipeline_desc.blender.targets.push(pso::ColorBlendDesc(
@@ -622,7 +625,7 @@ fn main() {
             device.destroy_shader_module(fs_module);
         }
 
-        pipeline.unwrap()
+        ManuallyDrop::new(pipeline.unwrap())
     };
 
     // Rendering setup
@@ -636,36 +639,34 @@ fn main() {
         depth: 0.0 .. 1.0,
     };
 
-    //
-    let mut running = true;
     let mut recreate_swapchain = false;
     let mut resize_dims = Extent2D {
         width: 0,
         height: 0,
     };
     let mut frame: u64 = 0;
-    while running {
-        running = !cfg!(target_arch = "wasm32");
-        #[cfg(not(target_arch = "wasm32"))]
-        events_loop.poll_events(|event| {
-            if let winit::Event::WindowEvent { event, .. } = event {
-                #[allow(unused_variables)]
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = winit::event_loop::ControlFlow::Wait;
+
+        match event {
+            winit::event::Event::WindowEvent { event, .. } => {
                 match event {
-                    winit::WindowEvent::KeyboardInput {
+                    winit::event::WindowEvent::CloseRequested => *control_flow = winit::event_loop::ControlFlow::Exit,
+                    winit::event::WindowEvent::KeyboardInput {
                         input:
-                            winit::KeyboardInput {
-                                virtual_keycode: Some(winit::VirtualKeyCode::Escape),
+                            winit::event::KeyboardInput {
+                                virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
                                 ..
                             },
                         ..
-                    }
-                    | winit::WindowEvent::CloseRequested => running = false,
-                    winit::WindowEvent::Resized(dims) => {
+                    } => *control_flow = winit::event_loop::ControlFlow::Exit,
+                    winit::event::WindowEvent::Resized(dims) => {
                         println!("resized to {:?}", dims);
                         #[cfg(feature = "gl")]
                         {
                             let context = surface.get_context();
-                            context.resize(dims.to_physical(context.window().get_hidpi_factor()));
+                            context.resize(dims.to_physical(context.window().hidpi_factor()));
                         }
                         recreate_swapchain = true;
                         resize_dims.width = dims.width as u32;
@@ -674,197 +675,203 @@ fn main() {
                     _ => (),
                 }
             }
-        });
+            winit::event::Event::EventsCleared => {
+                // Window was resized so we must recreate swapchain and framebuffers
+                if recreate_swapchain {
+                    device.wait_idle().unwrap();
 
-        // Window was resized so we must recreate swapchain and framebuffers
-        if recreate_swapchain {
-            device.wait_idle().unwrap();
+                    let (caps, formats, _present_modes) =
+                        surface.compatibility(&mut adapter.physical_device);
+                    // Verify that previous format still exists so we may reuse it.
+                    assert!(formats.iter().any(|fs| fs.contains(&format)));
 
-            let (caps, formats, _present_modes) =
-                surface.compatibility(&mut adapter.physical_device);
-            // Verify that previous format still exists so we may reuse it.
-            assert!(formats.iter().any(|fs| fs.contains(&format)));
+                    let swap_config = SwapchainConfig::from_caps(&caps, format, resize_dims);
+                    println!("{:?}", swap_config);
+                    let extent = swap_config.extent.to_extent();
 
-            let swap_config = SwapchainConfig::from_caps(&caps, format, resize_dims);
-            println!("{:?}", swap_config);
-            let extent = swap_config.extent.to_extent();
+                    let (new_swap_chain, new_backbuffer) =
+                        unsafe { device.create_swapchain(&mut surface, swap_config, swap_chain.take()) }
+                            .expect("Can't create swapchain");
 
-            let (new_swap_chain, new_backbuffer) =
-                unsafe { device.create_swapchain(&mut surface, swap_config, Some(swap_chain)) }
-                    .expect("Can't create swapchain");
+                    unsafe {
+                        // Clean up the old framebuffers and images
+                        for framebuffer in framebuffers.drain(..) {
+                            device.destroy_framebuffer(framebuffer);
+                        }
+                        for (_, rtv) in frame_images.drain(..) {
+                            device.destroy_image_view(rtv);
+                        }
+                    }
 
-            unsafe {
-                // Clean up the old framebuffers, images and swapchain
-                for framebuffer in framebuffers {
-                    device.destroy_framebuffer(framebuffer);
+                    swap_chain = Some(new_swap_chain);
+
+                    let (new_frame_images, new_framebuffers) = {
+                        let pairs = new_backbuffer
+                            .into_iter()
+                            .map(|image| unsafe {
+                                let rtv = device
+                                    .create_image_view(
+                                        &image,
+                                        i::ViewKind::D2,
+                                        format,
+                                        Swizzle::NO,
+                                        COLOR_RANGE.clone(),
+                                    )
+                                    .unwrap();
+                                (image, rtv)
+                            })
+                            .collect::<Vec<_>>();
+                        let fbos = pairs
+                            .iter()
+                            .map(|&(_, ref rtv)| unsafe {
+                                device
+                                    .create_framebuffer(&render_pass, Some(rtv), extent)
+                                    .unwrap()
+                            })
+                            .collect();
+                        (pairs, fbos)
+                    };
+
+                    framebuffers = new_framebuffers;
+                    frame_images = new_frame_images;
+                    viewport.rect.w = extent.width as _;
+                    viewport.rect.h = extent.height as _;
+
+                    recreate_swapchain = false;
                 }
-                for (_, rtv) in frame_images {
-                    device.destroy_image_view(rtv);
-                }
-            }
 
-            backbuffer = new_backbuffer;
-            swap_chain = new_swap_chain;
+                // Use guaranteed unused acquire semaphore to get the index of the next frame we will render to
+                // by using acquire_image
+                let swap_image = unsafe {
+                    match swap_chain.as_mut().unwrap().acquire_image(!0, free_acquire_semaphore.as_ref(), None) {
+                        Ok((i, _)) => i as usize,
+                        Err(_) => {
+                            recreate_swapchain = true;
+                            return;
+                        }
+                    }
+                };
 
-            let (new_frame_images, new_framebuffers) = {
-                let pairs = backbuffer
-                    .into_iter()
-                    .map(|image| unsafe {
-                        let rtv = device
-                            .create_image_view(
-                                &image,
-                                i::ViewKind::D2,
-                                format,
-                                Swizzle::NO,
-                                COLOR_RANGE.clone(),
-                            )
-                            .unwrap();
-                        (image, rtv)
-                    })
-                    .collect::<Vec<_>>();
-                let fbos = pairs
-                    .iter()
-                    .map(|&(_, ref rtv)| unsafe {
-                        device
-                            .create_framebuffer(&render_pass, Some(rtv), extent)
-                            .unwrap()
-                    })
-                    .collect();
-                (pairs, fbos)
-            };
-
-            framebuffers = new_framebuffers;
-            frame_images = new_frame_images;
-            viewport.rect.w = extent.width as _;
-            viewport.rect.h = extent.height as _;
-            recreate_swapchain = false;
-        }
-
-        // Use guaranteed unused acquire semaphore to get the index of the next frame we will render to
-        // by using acquire_image
-        let swap_image = unsafe {
-            match swap_chain.acquire_image(!0, Some(&free_acquire_semaphore), None) {
-                Ok((i, _)) => i as usize,
-                Err(_) => {
-                    recreate_swapchain = true;
-                    continue;
-                }
-            }
-        };
-
-        // Swap the acquire semaphore with the one previously associated with the image we are acquiring
-        core::mem::swap(
-            &mut free_acquire_semaphore,
-            &mut image_acquire_semaphores[swap_image],
-        );
-
-        // Compute index into our resource ring buffers based on the frame number
-        // and number of frames in flight. Pay close attention to where this index is needed
-        // versus when the swapchain image index we got from acquire_image is needed.
-        let frame_idx = frame as usize % frames_in_flight;
-
-        // Wait for the fence of the previous submission of this frame and reset it; ensures we are
-        // submitting only up to maximum number of frames_in_flight if we are submitting faster than
-        // the gpu can keep up with. This would also guarantee that any resources which need to be
-        // updated with a CPU->GPU data copy are not in use by the GPU, so we can perform those updates.
-        // In this case there are none to be done, however.
-        unsafe {
-            device
-                .wait_for_fence(&submission_complete_fences[frame_idx], !0)
-                .expect("Failed to wait for fence");
-            device
-                .reset_fence(&submission_complete_fences[frame_idx])
-                .expect("Failed to reset fence");
-            cmd_pools[frame_idx].reset(false);
-        }
-
-        // Rendering
-        let cmd_buffer = &mut cmd_buffers[frame_idx];
-        unsafe {
-            cmd_buffer.begin(false);
-
-            cmd_buffer.set_viewports(0, &[viewport.clone()]);
-            cmd_buffer.set_scissors(0, &[viewport.rect]);
-            cmd_buffer.bind_graphics_pipeline(&pipeline);
-            cmd_buffer.bind_vertex_buffers(0, Some((&vertex_buffer, 0)));
-            cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
-
-            {
-                let mut encoder = cmd_buffer.begin_render_pass_inline(
-                    &render_pass,
-                    &framebuffers[swap_image],
-                    viewport.rect,
-                    &[command::ClearValue::Color(command::ClearColor::Sfloat([
-                        0.8, 0.8, 0.8, 1.0,
-                    ]))],
+                // Swap the acquire semaphore with the one previously associated with the image we are acquiring
+                core::mem::swap(
+                    free_acquire_semaphore.as_mut().unwrap(),
+                    &mut image_acquire_semaphores[swap_image],
                 );
-                encoder.draw(0 .. 6, 0 .. 1);
+
+                // Compute index into our resource ring buffers based on the frame number
+                // and number of frames in flight. Pay close attention to where this index is needed
+                // versus when the swapchain image index we got from acquire_image is needed.
+                let frame_idx = frame as usize % frames_in_flight;
+
+                // Wait for the fence of the previous submission of this frame and reset it; ensures we are
+                // submitting only up to maximum number of frames_in_flight if we are submitting faster than
+                // the gpu can keep up with. This would also guarantee that any resources which need to be
+                // updated with a CPU->GPU data copy are not in use by the GPU, so we can perform those updates.
+                // In this case there are none to be done, however.
+                unsafe {
+                    device
+                        .wait_for_fence(&submission_complete_fences[frame_idx], !0)
+                        .expect("Failed to wait for fence");
+                    device
+                        .reset_fence(&submission_complete_fences[frame_idx])
+                        .expect("Failed to reset fence");
+                    cmd_pools[frame_idx].reset(false);
+                }
+
+                // Rendering
+                let cmd_buffer = &mut cmd_buffers[frame_idx];
+                unsafe {
+                    cmd_buffer.begin(false);
+
+                    cmd_buffer.set_viewports(0, &[viewport.clone()]);
+                    cmd_buffer.set_scissors(0, &[viewport.rect]);
+                    cmd_buffer.bind_graphics_pipeline(&pipeline);
+                    cmd_buffer.bind_vertex_buffers(0, Some((&*vertex_buffer, 0)));
+                    cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
+
+                    {
+                        let mut encoder = cmd_buffer.begin_render_pass_inline(
+                            &render_pass,
+                            &framebuffers[swap_image],
+                            viewport.rect,
+                            &[command::ClearValue::Color(command::ClearColor::Sfloat([
+                                0.8, 0.8, 0.8, 1.0,
+                            ]))],
+                        );
+                        encoder.draw(0 .. 6, 0 .. 1);
+                    }
+
+                    cmd_buffer.finish();
+
+                    let submission = Submission {
+                        command_buffers: Some(&*cmd_buffer),
+                        wait_semaphores: Some((
+                            &image_acquire_semaphores[swap_image],
+                            PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+                        )),
+                        signal_semaphores: Some(&submission_complete_semaphores[frame_idx]),
+                    };
+                    queue_group.queues[0].submit(submission, Some(&submission_complete_fences[frame_idx]));
+
+                    // present frame
+                    if let Err(_) = swap_chain.as_ref().unwrap().present(
+                        &mut queue_group.queues[0],
+                        swap_image as hal::SwapImageIndex,
+                        Some(&submission_complete_semaphores[frame_idx]),
+                    ) {
+                        recreate_swapchain = true;
+                        return;
+                    }
+                }
+
+                // Increment our frame
+                frame += 1;
             }
+            winit::event::Event::LoopDestroyed => {
+                // cleanup resources
+                device.wait_idle().unwrap();
+                unsafe {
+                    // TODO: When ManuallyDrop::take (soon to be renamed to ManuallyDrop::read) is stabilized we should use that instead.
+                    device.destroy_descriptor_pool(ManuallyDrop::into_inner(std::ptr::read(&desc_pool)));
+                    device.destroy_descriptor_set_layout(ManuallyDrop::into_inner(std::ptr::read(&set_layout)));
 
-            cmd_buffer.finish();
+                    device.destroy_buffer(ManuallyDrop::into_inner(std::ptr::read(&vertex_buffer)));
+                    device.destroy_buffer(ManuallyDrop::into_inner(std::ptr::read(&image_upload_buffer)));
+                    device.destroy_image(ManuallyDrop::into_inner(std::ptr::read(&image_logo)));
+                    device.destroy_image_view(ManuallyDrop::into_inner(std::ptr::read(&image_srv)));
+                    device.destroy_sampler(ManuallyDrop::into_inner(std::ptr::read(&sampler)));
+                    device.destroy_semaphore(free_acquire_semaphore.take().unwrap());
+                    for p in cmd_pools.drain(..) {
+                        device.destroy_command_pool(p.into_raw());
+                    }
+                    for s in image_acquire_semaphores.drain(..) {
+                        device.destroy_semaphore(s);
+                    }
+                    for s in submission_complete_semaphores.drain(..) {
+                        device.destroy_semaphore(s);
+                    }
+                    for f in submission_complete_fences.drain(..) {
+                        device.destroy_fence(f);
+                    }
+                    device.destroy_render_pass(ManuallyDrop::into_inner(std::ptr::read(&render_pass)));
+                    device.free_memory(ManuallyDrop::into_inner(std::ptr::read(&buffer_memory)));
+                    device.free_memory(ManuallyDrop::into_inner(std::ptr::read(&image_memory)));
+                    device.free_memory(ManuallyDrop::into_inner(std::ptr::read(&image_upload_memory)));
+                    device.destroy_graphics_pipeline(ManuallyDrop::into_inner(std::ptr::read(&pipeline)));
+                    device.destroy_pipeline_layout(ManuallyDrop::into_inner(std::ptr::read(&pipeline_layout)));
+                    for framebuffer in framebuffers.drain(..) {
+                        device.destroy_framebuffer(framebuffer);
+                    }
+                    for (_, rtv) in frame_images.drain(..) {
+                        device.destroy_image_view(rtv);
+                    }
 
-            let submission = Submission {
-                command_buffers: Some(&*cmd_buffer),
-                wait_semaphores: Some((
-                    &image_acquire_semaphores[swap_image],
-                    PipelineStage::COLOR_ATTACHMENT_OUTPUT,
-                )),
-                signal_semaphores: Some(&submission_complete_semaphores[frame_idx]),
-            };
-            queue_group.queues[0].submit(submission, Some(&submission_complete_fences[frame_idx]));
-
-            // present frame
-            if let Err(_) = swap_chain.present(
-                &mut queue_group.queues[0],
-                swap_image as hal::SwapImageIndex,
-                Some(&submission_complete_semaphores[frame_idx]),
-            ) {
-                recreate_swapchain = true;
+                    device.destroy_swapchain(swap_chain.take().unwrap());
+                }
             }
+            _ => { }
         }
-        // Increment our frame
-        frame += 1;
-    }
-
-    // cleanup!
-    device.wait_idle().unwrap();
-    unsafe {
-        device.destroy_descriptor_pool(desc_pool);
-        device.destroy_descriptor_set_layout(set_layout);
-
-        device.destroy_buffer(vertex_buffer);
-        device.destroy_buffer(image_upload_buffer);
-        device.destroy_image(image_logo);
-        device.destroy_image_view(image_srv);
-        device.destroy_sampler(sampler);
-        device.destroy_semaphore(free_acquire_semaphore);
-        for p in cmd_pools {
-            device.destroy_command_pool(p.into_raw());
-        }
-        for s in image_acquire_semaphores {
-            device.destroy_semaphore(s);
-        }
-        for s in submission_complete_semaphores {
-            device.destroy_semaphore(s);
-        }
-        for f in submission_complete_fences {
-            device.destroy_fence(f);
-        }
-        device.destroy_render_pass(render_pass);
-        device.free_memory(buffer_memory);
-        device.free_memory(image_memory);
-        device.free_memory(image_upload_memory);
-        device.destroy_graphics_pipeline(pipeline);
-        device.destroy_pipeline_layout(pipeline_layout);
-        for framebuffer in framebuffers {
-            device.destroy_framebuffer(framebuffer);
-        }
-        for (_, rtv) in frame_images {
-            device.destroy_image_view(rtv);
-        }
-
-        device.destroy_swapchain(swap_chain);
-    }
+    });
 }
 
 #[cfg(not(any(

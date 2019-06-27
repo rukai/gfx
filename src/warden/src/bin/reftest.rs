@@ -224,10 +224,10 @@ fn main() {
     {
         use gfx_backend_gl::glutin;
         println!("Warding GL:");
-        let events_loop = glutin::EventsLoop::new();
+        let events_loop = glutin::event_loop::EventLoop::new();
         let window = glutin::ContextBuilder::new()
             .with_gl_profile(glutin::GlProfile::Core)
-            .build_windowed(glutin::WindowBuilder::new(), &events_loop)
+            .build_windowed(glutin::window::WindowBuilder::new(), &events_loop)
             .unwrap();
         let window = unsafe { window.make_current() }.expect("Unable to make window current");
         let instance = gfx_backend_gl::Surface::from_window(window);
@@ -237,7 +237,7 @@ fn main() {
     {
         use gfx_backend_gl::glutin;
         println!("Warding GL headless:");
-        let events_loop = glutin::EventsLoop::new();
+        let events_loop = glutin::event_loop::EventLoop::new();
         let context = glutin::ContextBuilder::new()
             .build_headless(&events_loop, glutin::dpi::PhysicalSize::new(0.0, 0.0))
             .unwrap();
